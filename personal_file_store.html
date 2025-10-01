@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Personal File Store — EMON HOSEN</title>
+  <style>
+    :root{--bg:#0b1020;--card:#0f1724;--accent:#6ee7b7;--muted:#9aa4b2;}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,Segoe UI,Roboto,system-ui,Arial;background:linear-gradient(180deg,#081024 0%, #071020 60%);color:#e6eef6}
+    .container{max-width:980px;margin:20px auto;padding:20px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:18px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    header{display:flex;gap:12px;align-items:center}
+    header h1{margin:0;font-size:1.1rem}
+    .muted{color:var(--muted);font-size:0.9rem}
+    /* Login overlay */
+    .overlay{position:fixed;inset:0;background:linear-gradient(0deg,rgba(2,6,23,0.85),rgba(2,6,23,0.9));display:flex;align-items:center;justify-content:center;padding:20px}
+    .login-box{width:100%;max-width:420px}
+    .field{display:flex;flex-direction:column;margin-bottom:12px}
+    label{font-size:0.85rem;color:var(--muted);margin-bottom:6px}
+    input[type=text],input[type=password]{padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    button{cursor:pointer;border:0;padding:10px 14px;border-radius:10px;background:var(--accent);color:#042018;font-weight:600}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+    .uinfo{display:flex;gap:12px;align-items:center}
+    .avatar{width:46px;height:46px;border-radius:8px;background:linear-gradient(120deg,#123 0%,#236 100%);display:flex;align-items:center;justify-content:center;font-weight:700}
+    .upload-area{border:2px dashed rgba(255,255,255,0.04);padding:16px;border-radius:10px;text-align:center}
+    .files-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:12px}
+    .file-card{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;display:flex;flex-direction:column;gap:8px}
+    .thumb{height:90px;border-radius:6px;background:#071022;display:flex;align-items:center;justify-content:center;font-size:0.9rem;color:var(--muted);overflow:hidden}
+    .file-meta{font-size:0.85rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+    .controls{display:flex;gap:8px}
+    .small{font-size:0.8rem;padding:6px 8px;border-radius:8px}
+    @media(max-width:600px){.container{margin:8px;padding:12px}.topbar{flex-direction:column;align-items:flex-start;gap:8px}.avatar{width:40px;height:40px}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <header class="topbar">
+        <div class="uinfo">
+          <div class="avatar">EH</div>
+          <div>
+            <h1>Personal File Store</h1>
+            <div class="muted">Quick mobile-friendly file & photo store — local only</div>
+          </div>
+        </div>
+        <div id="sessionControls"></div>
+      </header>
+
+      <section id="mainArea" style="display:none">
+        <div class="upload-area">
+          <div class="muted">Drag & drop files here or</div>
+          <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <label class="small btn-ghost" style="cursor:pointer">
+              Select files <input id="fileInput" type="file" multiple style="display:none" />
+            </label>
+            <button id="clearAll" class="small">Delete all files</button>
+            <button id="exportBtn" class="small">Export all (ZIP)</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="muted">Stored files</div>
+          <div id="files" class="files-grid"></div>
+          <div id="emptyNote" class="muted" style="margin-top:12px">No files yet — upload photos or documents.</div>
+        </div>
+      </section>
+
+      <div class="muted" style="margin-top:12px;font-size:0.9rem">Note: Files are stored only in your browser (IndexedDB). This is convenient but not a secure cloud backup. For a server-backed site, ask me and I can make one.</div>
+    </div>
+  </div>
+
+  <!-- Login overlay -->
+  <div id="loginOverlay" class="overlay">
+    <div class="login-box card">
+      <h2 style="margin-top:0">Fast Login</h2>
+      <div class="muted">Use mobile-friendly quick login. Username and password are checked locally.</div>
+      <div style="height:12px"></div>
+      <div class="field">
+        <label>Username</label>
+        <input id="username" type="text" value="EMON HOSEN" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="password" type="password" value="1606" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="loginBtn">Login</button>
+        <button id="demoBtn" class="btn-ghost">Demo</button>
+      </div>
+      <div id="loginMsg" class="muted" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+<script>
+// --- Simple IndexedDB helper for storing files ---
+const DB_NAME = 'personalFileStoreDB';
+const STORE = 'files';
+let db;
+function openDB(){
+  return new Promise((res,rej)=>{
+    const r = indexedDB.open(DB_NAME,1);
+    r.onupgradeneeded = e => {
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains(STORE)){
+        d.createObjectStore(STORE, { keyPath: 'id' });
+      }
+    }
+    r.onsuccess = e => { db = e.target.result; res(db); }
+    r.onerror = e => rej(e.target.error);
+  })
+}
+function putFile(obj){
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(STORE,'readwrite');
+    const store = tx.objectStore(STORE);
+    store.put(obj);
+    tx.oncomplete = ()=>res();
+    tx.onerror = e=>rej(e.target.error);
+  })
+}
+function getAllFiles(){
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(STORE,'readonly');
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = ()=>res(req.result);
+    req.onerror = e=>rej(e.target.error);
+  })
+}
+function deleteFile(id){
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = ()=>res();
+    tx.onerror = e=>rej(e.target.error);
+  })
+}
+function clearAll(){
+  return new Promise((res,rej)=>{
+    const tx = db.transaction(STORE,'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = ()=>res();
+    tx.onerror = e=>rej(e.target.error);
+  })
+}
+
+// --- UI logic ---
+const loginOverlay = document.getElementById('loginOverlay');
+const usernameIn = document.getElementById('username');
+const passwordIn = document.getElementById('password');
+const loginBtn = document.getElementById('loginBtn');
+const demoBtn = document.getElementById('demoBtn');
+const loginMsg = document.getElementById('loginMsg');
+const mainArea = document.getElementById('mainArea');
+const sessionControls = document.getElementById('sessionControls');
+const fileInput = document.getElementById('fileInput');
+const filesDiv = document.getElementById('files');
+const emptyNote = document.getElementById('emptyNote');
+const clearAllBtn = document.getElementById('clearAll');
+const exportBtn = document.getElementById('exportBtn');
+
+const VALID_USER = 'EMON HOSEN';
+const VALID_PASS = '1606';
+
+function showMsg(txt, bad=false){ loginMsg.textContent = txt; loginMsg.style.color = bad ? '#ff9b9b' : 'var(--muted)'; }
+
+loginBtn.addEventListener('click', ()=>{
+  const u = usernameIn.value.trim();
+  const p = passwordIn.value;
+  if(u === VALID_USER && p === VALID_PASS){
+    loginOverlay.style.display = 'none';
+    mainArea.style.display = '';
+    sessionControls.innerHTML = `<div style="text-align:right"><div class=\"muted\">Signed in as <strong>${u}</strong></div><div style=\"margin-top:8px\"><button id=\"logoutBtn\" class=\"small\">Logout</button></div></div>`;
+    document.getElementById('logoutBtn').addEventListener('click', ()=>{ location.reload(); });
+    afterLogin();
+  } else showMsg('Invalid credentials', true);
+});
+
+// Demo quick login (bypasses correct credentials but demonstrates UI)
+demoBtn.addEventListener('click', ()=>{
+  usernameIn.value = VALID_USER; passwordIn.value = VALID_PASS; loginBtn.click();
+});
+
+// drag drop
+const dropArea = document.querySelector('.upload-area');
+['dragenter','dragover'].forEach(e=>dropArea.addEventListener(e, ev=>{ ev.preventDefault(); ev.stopPropagation(); }));
+['dragleave','drop'].forEach(e=>dropArea.addEventListener(e, ev=>{ ev.preventDefault(); ev.stopPropagation(); }));
+dropArea.addEventListener('drop', ev=>{ const dt = ev.dataTransfer; handleFiles(dt.files); });
+fileInput.addEventListener('change', e=>handleFiles(e.target.files));
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,9); }
+
+async function handleFiles(list){
+  if(!db) await openDB();
+  const arr = Array.from(list);
+  for(const f of arr){
+    const id = uid();
+    const item = { id, name: f.name, type: f.type, size: f.size, created: new Date().toISOString(), blob: f };
+    await putFile(item);
+  }
+  await refreshFiles();
+}
+
+function fmtBytes(n){ if(n<1024) return n+' B'; if(n<1024*1024) return (n/1024).toFixed(1)+' KB'; return (n/(1024*1024)).toFixed(2)+' MB'; }
+
+async function refreshFiles(){
+  if(!db) await openDB();
+  const all = await getAllFiles();
+  filesDiv.innerHTML = '';
+  if(!all.length){ emptyNote.style.display='block'; return; } else emptyNote.style.display='none';
+  all.sort((a,b)=> b.created.localeCompare(a.created));
+  for(const it of all){
+    const card = document.createElement('div'); card.className='file-card';
+    const thumb = document.createElement('div'); thumb.className='thumb';
+    if(it.type.startsWith('image/')){
+      const img = document.createElement('img'); img.style.maxWidth='100%'; img.style.maxHeight='100%'; img.src = URL.createObjectURL(it.blob); thumb.appendChild(img);
+    } else {
+      thumb.textContent = it.name.split('.').pop().toUpperCase();
+    }
+    const title = document.createElement('div'); title.style.fontWeight='600'; title.style.fontSize='0.9rem'; title.textContent = it.name;
+    const meta = document.createElement('div'); meta.className='file-meta';
+    const left = document.createElement('div'); left.textContent = fmtBytes(it.size);
+    const controls = document.createElement('div'); controls.className='controls';
+    const dl = document.createElement('button'); dl.className='small'; dl.textContent='Download'; dl.addEventListener('click', ()=>{ downloadBlob(it); });
+    const del = document.createElement('button'); del.className='small btn-ghost'; del.textContent='Delete'; del.addEventListener('click', async ()=>{ await deleteFile(it.id); refreshFiles(); });
+    controls.appendChild(dl); controls.appendChild(del);
+    meta.appendChild(left); meta.appendChild(controls);
+    card.appendChild(thumb); card.appendChild(title); card.appendChild(meta);
+    filesDiv.appendChild(card);
+  }
+}
+
+function downloadBlob(item){
+  const url = URL.createObjectURL(item.blob);
+  const a = document.createElement('a'); a.href = url; a.download = item.name; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+clearAllBtn.addEventListener('click', async ()=>{
+  if(!confirm('Delete ALL stored files? This cannot be undone.')) return;
+  await clearAll(); refreshFiles();
+});
+
+// Export all as single zip — to keep code small we do a simple multi-download fallback if zip not available
+exportBtn.addEventListener('click', async ()=>{
+  const all = await getAllFiles();
+  if(!all.length){ alert('No files to export'); return; }
+  // try JSZip if available (not bundled). If not, trigger multiple downloads
+  if(window.JSZip){
+    const zip = new JSZip();
+    for(const f of all) zip.file(f.name, f.blob);
+    const content = await zip.generateAsync({type:'blob'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(content); a.download = 'personal_files.zip'; a.click();
+  } else {
+    if(confirm('JSZip not present. Download files one-by-one?')){
+      for(const f of all){ downloadBlob(f); }
+    }
+  }
+});
+
+async function afterLogin(){
+  await openDB();
+  await refreshFiles();
+}
+
+// On load, keep login overlay visible (fast login). But if user previously logged in in same session, we could skip — simple approach: keep it required.
+</script>
+</body>
+</html>
